@@ -3,24 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>iPad 1 - 心電図モニター(進化版)</title>
+    <title>iPad 1 - リアル心電図モニター(音源持ち込み版)</title>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: monospace; }
         canvas { display: block; width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 1; }
         
-        /* PATIENTを消し、BPMを画面右上に大きく配置 */
+        /* BPMを画面右上に大きく配置 */
         #info { 
             position: absolute; top: 30px; right: 40px; 
             color: #00ff00; font-size: 64px; font-weight: bold; 
             z-index: 10; text-align: right; pointer-events: none;
         }
-        #info span { font-size: 96px; } /* 数字だけさらに巨大化 */
+        #info span { font-size: 96px; } 
         
         /* スタートボタン */
         #start-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.95); display:flex; justify-content:center; align-items:center; z-index:100; }
         #start-btn { background: #052c05; color: #00ff00; border: 2px solid #00ff00; padding: 25px 50px; font-size: 22px; border-radius: 8px; cursor: pointer; font-weight: bold; }
         
-        /* お化け襲来演出 (obake.png に修正) */
+        /* お化け襲来演出 (obake.png) */
         #scare-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background-image: url('obake.png'); 
@@ -30,7 +30,7 @@
         }
         @keyframes shake {
             0% { transform: translate(0, 0); }
-            25% { transform: translate(-10px, 10px); }
+            25 { transform: translate(-10px, 10px); }
             50% { transform: translate(-10px, -10px); }
             75% { transform: translate(10px, 10px); }
             100% { transform: translate(10px, -10px); }
@@ -65,7 +65,6 @@
   messagingSenderId: "34184873831",
   appId: "1:34184873831:web:1c984c7e1c34ca57d191c2"
 };
-
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
 
@@ -74,71 +73,36 @@
         let isScare = false;
         let isReady = false;
 
-        const scareAudio = new Audio('scare_sound.mp3'); 
+        // 音源の準備
+        const bpmAudio = new Audio('sindenzu.MP3'); // 持ち込んでいただいた心音
+        const scareAudio = new Audio('scare_sound.mp3'); // お化けの爆音
         scareAudio.volume = 1.0;
 
-        let audioCtx = null;
-        let echoNode = null; // 反響用エフェクトノード
-
+        // iPadの音声制限解除
         document.getElementById('start-btn').addEventListener('click', () => {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            if (audioCtx.state === 'suspended') {
-                audioCtx.resume();
-            }
-            
-            // --- 反響（エコー）エフェクト回路の作成 ---
-            echoNode = audioCtx.createDelay();
-            echoNode.delayTime.setValueAtTime(0.25, audioCtx.currentTime); // 跳ね返るまでの時間(秒)
-            
-            const feedback = audioCtx.createGain();
-            feedback.gain.setValueAtTime(0.4, audioCtx.currentTime); // 反響の大きさ・引きずり度合い
-            
-            // 回路を繋ぐ (ループさせてやまびこ効果を作る)
-            echoNode.connect(feedback);
-            feedback.connect(echoNode);
-            echoNode.connect(audioCtx.destination);
-            // ------------------------------------------
-
-            const dummyBuf = audioCtx.createBuffer(1, 1, 22050);
-            const dummySrc = audioCtx.createBufferSource();
-            dummySrc.buffer = dummyBuf;
-            dummySrc.connect(audioCtx.destination);
-            dummySrc.start(0);
-
-            scareAudio.play().then(() => {
-                scareAudio.pause();
-                scareAudio.currentTime = 0;
+            // 両方の音を一度再生して即一時停止
+            Promise.all([
+                bpmAudio.play().then(() => { bpmAudio.pause(); bpmAudio.currentTime = 0; }),
+                scareAudio.play().then(() => { scareAudio.pause(); scareAudio.currentTime = 0; })
+            ]).then(() => {
                 isReady = true;
                 document.getElementById('start-overlay').style.display = 'none';
             }).catch(e => {
+                // ファイル名ミスなどがあっても画面だけは動くようにするバックアップ
                 isReady = true;
                 document.getElementById('start-overlay').style.display = 'none';
+                console.log("音源のロードに失敗、またはファイルがありません");
             });
         });
 
-        // 反響付きピコン音
-        function playBeep() {
-            if (!audioCtx || isScare || !isReady) return;
-            
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(980, audioCtx.currentTime); // 澄んだ高音
-            
-            gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.08); 
-            
-            // スピーカー（直接）とエコー回路の両方に音を流す
-            osc.connect(gain);
-            gain.connect(audioCtx.destination); // 直接の音
-            gain.connect(echoNode);             // エコーに送る音
-            
-            osc.start();
-            osc.stop(audioCtx.currentTime + 0.08);
+        // 心拍音を鳴らす関数（エコーなし・ストレート再生）
+        function playHeartbeat() {
+            if (!isReady || isScare) return;
+            bpmAudio.currentTime = 0; // 必ず頭出しする
+            bpmAudio.play().catch(e => console.log(e));
         }
 
-        // Firebaseリアルタイム監視（画像表示と音再生のタイミング完全同期）
+        // Firebaseリアルタイム監視
         let lastScareState = false;
         onValue(ref(db, 'ecg'), (snapshot) => {
             const data = snapshot.val();
@@ -148,7 +112,7 @@
                 if (!isAuto) currentBpm = data.bpm || 70;
                 
                 if (isScare && !lastScareState) {
-                    // 優先して画像表示と音を同時にぶつける
+                    // 画像表示とお化け音を完全に同時トリガー
                     document.getElementById('scare-overlay').style.display = 'block';
                     if (isReady) {
                         scareAudio.currentTime = 0;
@@ -166,7 +130,7 @@
         
         function resize() {
             canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight; // 縦幅を100%完全にいっぱいに使う
+            canvas.height = window.innerHeight;
             ctx.fillStyle = '#000';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
@@ -178,54 +142,49 @@
         let lastTime = performance.now();
         let beatTimer = 0;
 
-        // 不自然な自動BPM管理用の変数
         let nextBpmChangeTime = 0;
         let targetAutoBpm = 72;
-        let isArrhythmia = false; // 不整脈モードフラグ
+        let isArrhythmia = false;
 
         function draw(currentTime) {
             let deltaTime = currentTime - lastTime;
             lastTime = currentTime;
             if (deltaTime > 100) deltaTime = 16.6; 
 
-            // --- 不気味で不自然な自動BPMロジック ---
+            // 不自然な自動BPMロジック
             if (isAuto && !isScare) {
                 if (currentTime > nextBpmChangeTime) {
-                    // 70%の確率で「普通の安心リズム(68〜76)」、30%の確率で突然「不整脈(110〜130)」にする
                     if (Math.random() < 0.30 && !isArrhythmia) {
                         isArrhythmia = true;
-                        targetAutoBpm = Math.floor(110 + Math.random() * 20); // 突然跳ね上がる
-                        nextBpmChangeTime = currentTime + (1500 + Math.random() * 2000); // 1.5〜2秒間だけ続く
+                        targetAutoBpm = Math.floor(110 + Math.random() * 20);
+                        nextBpmChangeTime = currentTime + (1500 + Math.random() * 2000);
                     } else {
                         isArrhythmia = false;
-                        targetAutoBpm = Math.floor(68 + Math.random() * 8); // 通常に戻る
-                        nextBpmChangeTime = currentTime + (4000 + Math.random() * 6000); // 4〜6秒間は安定
+                        targetAutoBpm = Math.floor(68 + Math.random() * 8);
+                        nextBpmChangeTime = currentTime + (4000 + Math.random() * 6000);
                     }
                 }
-                // 目標のBPMに向けて、少し急ぎめに数値を近づける
                 currentBpm += (targetAutoBpm - currentBpm) * 0.08;
             } else if (isScare) {
                 currentBpm = 180;
             }
             
-            // 画面表示
             document.getElementById('bpm-display').textContent = isScare ? "???" : Math.round(currentBpm);
 
             let beatInterval = (60 / currentBpm) * 1000;
             beatTimer += deltaTime;
 
+            // 正確な時間で持ち込み音源を鳴らす
             if (beatTimer >= beatInterval) {
                 beatTimer = beatTimer % beatInterval;
-                playBeep();
+                playHeartbeat(); 
             }
 
-            let speed = (canvas.width / 4500) * deltaTime; // 約4.5秒で1周
+            let speed = (canvas.width / 4500) * deltaTime;
             if (speed < 1) speed = 1;
 
             let targetY = canvas.height / 2;
             let ms = beatTimer; 
-
-            // 波形の縦幅(R波)を画面の高さに合わせてダイナミックに拡大
             let waveHeight = canvas.height * 0.35; 
 
             if (ms > 0 && ms < 60) {
@@ -234,7 +193,7 @@
                 targetY += (waveHeight * 0.12);
             } else if (ms >= 120 && ms < 150) {
                 let percent = (ms - 120) / 30;
-                targetY -= waveHeight * Math.sin(percent * Math.PI); // 縦幅を大幅に長く拡大
+                targetY -= waveHeight * Math.sin(percent * Math.PI); 
             } else if (ms >= 150 && ms < 180) {
                 targetY += (waveHeight * 0.28);
             } else if (ms >= 250 && ms < 380) {
@@ -251,7 +210,7 @@
 
             ctx.beginPath();
             ctx.strokeStyle = isScare ? '#ff0000' : '#00ff00';
-            ctx.lineWidth = 4; // 線を太くして視認性アップ
+            ctx.lineWidth = 4;
             ctx.moveTo(scanX - speed, lastY);
             ctx.lineTo(scanX, targetY);
             ctx.stroke();
