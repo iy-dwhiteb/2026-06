@@ -3,16 +3,42 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>iPad 1 - 心電図モニター</title>
+    <title>iPad 1 - リアル心電図モニター</title>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: monospace; }
-        canvas { display: block; width: 100%; height: 80%; }
-        #info { color: #00ff00; font-size: 24px; padding: 20px; display: flex; justify-content: space-between; }
-        .scare-mode { background: #ff0000 !important; animation: blink 0.2s infinite; }
-        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+        canvas { display: block; width: 100%; height: 85%; }
+        #info { color: #00ff00; font-size: 28px; padding: 20px; display: flex; justify-content: space-between; font-weight: bold; }
+        
+        /* スタートボタン（音源解放用） */
+        #start-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); display:flex; justify-content:center; align-items:center; z-index:100; }
+        #start-btn { background: #052c05; color: #00ff00; border: 2px solid #00ff00; padding: 20px 40px; font-size: 20px; border-radius: 8px; cursor: pointer; }
+        
+        /* お化け襲来時の全画面演出 */
+        #scare-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-image: url('obake.jpg'); /* お化けの画像ファイル名 */
+            background-size: cover; background-position: center;
+            display: none; z-index: 50;
+            animation: shake 0.1s infinite;
+        }
+        @keyframes shake {
+            0% { transform: translate(0, 0); }
+            20% { transform: translate(-10px, 10px); }
+            40% { transform: translate(-10px, -10px); }
+            60% { transform: translate(10px, 10px); }
+            80% { transform: translate(10px, -10px); }
+            100% { transform: translate(0, 0); }
+        }
     </style>
 </head>
-<body id="body">
+<body>
+
+    <div id="start-overlay">
+        <button id="start-btn">タップして心電図モニター開始</button>
+    </div>
+
+    <div id="scare-overlay"></div>
+
     <div id="info">
         <div>PATIENT: UNKNOWN</div>
         <div>BPM: <span id="bpm-display">70</span></div>
@@ -37,12 +63,53 @@
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
 
-        // 内部ステート
+        // 内部状態
         let currentBpm = 70;
         let isAuto = true;
         let isScare = false;
+        let isReady = false;
 
-        // Firebase同期
+        // お化け用のドッキリ音源の準備
+        const scareAudio = new Audio('scare_sound.mp3'); 
+        scareAudio.volume = 1.0; // 爆音
+
+        // ピコン音（電子音）用のオーディオコンテキスト
+        let audioCtx = null;
+
+        // 開始ボタンをタップした時の処理
+        document.getElementById('start-btn').addEventListener('click', () => {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            
+            // お化け音を一度再生して即一時停止（iOSのロック解除）
+            scareAudio.play().then(() => {
+                scareAudio.pause();
+                scareAudio.currentTime = 0;
+                isReady = true;
+                document.getElementById('start-overlay').style.display = 'none';
+            });
+        });
+
+        // ピコンという電子音を合成して鳴らす関数
+        function playBeep() {
+            if (!audioCtx || isScare) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            
+            osc.type = 'sine'; // 綺麗なサイン波
+            osc.frequency.setValueAtTime(880, audioCtx.currentTime); // 音の高さ（880Hz）
+            
+            // 音が「ピコン…」と一瞬で消えるように音量をコントロール
+            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
+            
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.15);
+        }
+
+        // Firebaseデータの監視
+        let lastScareState = false;
         onValue(ref(db, 'ecg'), (snapshot) => {
             const data = snapshot.val();
             if (data) {
@@ -50,76 +117,103 @@
                 isScare = data.scare ?? false;
                 if (!isAuto) currentBpm = data.bpm || 70;
                 
-                // お化け演出の背景切り替え
-                if (isScare) {
-                    document.getElementById('body').classList.add('scare-mode');
-                    document.getElementById('info').style.color = '#fff';
-                } else {
-                    document.getElementById('body').classList.remove('scare-mode');
-                    document.getElementById('info').style.color = '#00ff00';
+                // お化けボタンが押された瞬間（falseからtrueになった時）
+                if (isScare && !lastScareState && isReady) {
+                    document.getElementById('scare-overlay').style.display = 'block';
+                    scareAudio.currentTime = 0;
+                    scareAudio.play().catch(e => console.log(e));
+                } 
+                // お化け終了（自動で1秒後に戻る設定）
+                else if (!isScare && lastScareState) {
+                    document.getElementById('scare-overlay').style.display = 'none';
                 }
+                lastScareState = isScare;
             }
         });
 
-        // 心電図の描画ロジック
+        // --- ここから本物風の心電図描画ロジック ---
         const canvas = document.getElementById('ecgCanvas');
         const ctx = canvas.getContext('2d');
         
         function resize() {
             canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight * 0.8;
+            canvas.height = window.innerHeight * 0.85;
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height); // 最初だけ黒で塗りつぶし
         }
         window.addEventListener('resize', resize);
         resize();
 
-        let x = 0;
-        let points = [];
+        let scanX = 0;             // 現在の描画位置（左から右へ動く縦ライン）
+        const speed = 3;           // 描画の進むスピード
+        let lastY = canvas.height / 2;
         let t = 0;
+        let frameCount = 0;
 
         function draw() {
-            t += 0.05;
-            // 自動調整モードの時はBPMをサイン波でなだらかに揺らす
+            frameCount += speed;
+            t += 0.02;
+
             if (isAuto && !isScare) {
-                currentBpm = Math.floor(75 + Math.sin(t * 0.1) * 15);
+                // 自動モード：BPMをゆっくり変動させる（65〜90付近）
+                currentBpm = Math.floor(75 + Math.sin(t * 0.5) * 12);
             } else if (isScare) {
-                currentBpm = 145; // お化け出現時は強制的に高鳴る
+                currentBpm = 160; // お化け出現時は一応内部データを上げておく
             }
-            document.getElementById('bpm-display').textContent = currentBpm;
+            document.getElementById('bpm-display').textContent = isScare ? "???" : currentBpm;
 
-            // 画面を少しずつ消して残像を作る
-            ctx.fillStyle = isScare ? 'rgba(255,0,0,0.05)' : 'rgba(0, 0, 0, 0.05)';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            // 1拍（ピコン）にかかるフレーム数を計算
+            let framesPerBeat = (60 / currentBpm) * 60;
+            let beatPos = Math.floor(frameCount) % Math.floor(framesPerBeat);
 
-            // 波形の計算
-            let y = canvas.height / 2;
-            let cycle = (60 / currentBpm) * 60; // 1拍のフレーム数目安
-            let pos = Math.floor(x) % Math.floor(cycle);
+            // 心電図の基本の高さ（真ん中）
+            let targetY = canvas.height / 2;
 
-            if (pos > 0 && pos < 5) y -= (pos * 10); // P波っぽいやつ
-            else if (pos >= 10 && pos < 13) y += (pos - 10) * 15; // Q波
-            else if (pos >= 13 && pos < 17) y -= (pos - 13) * 45; // R波（鋭い上向き）
-            else if (pos >= 17 && pos < 21) y += (pos - 17) * 35; // S波
-            else if (pos >= 30 && pos < 40) y -= Math.sin((pos-30)*Math.PI/10) * 20; // T波
+            // 本物っぽいPQRST波の再現
+            if (beatPos >= 0 && beatPos < speed) {
+                playBeep(); // 脈拍の頭でピコン音を鳴らす
+            }
+            if (beatPos > 0 && beatPos < 10) targetY -= 8;   // P波（小さな山）
+            else if (beatPos >= 15 && beatPos < 20) targetY += 15;  // Q波（少し下がる）
+            else if (beatPos >= 20 && beatPos < 26) targetY -= 110; // R波（鋭い絶頂）
+            else if (beatPos >= 26 && beatPos < 32) targetY += 45;  // S波（深く下がる）
+            else if (beatPos >= 45 && beatPos < 65) targetY -= 18;  // T波（なだらかな山）
 
-            // 線の描画
+            // お化け出現時は波形を完全にめちゃくちゃにする（ノイズ化）
+            if (isScare) {
+                targetY = (canvas.height / 2) + (Math.random() - 0.5) * (canvas.height * 0.7);
+            }
+
+            // 現在の走査線の部分だけ、少し先の画面を一瞬黒く消す（前の周の残像を消すため）
+            ctx.fillStyle = '#000';
+            ctx.fillRect(scanX, 0, 25, canvas.height);
+
+            // 線の描画（現在の点と一歩前の点を結ぶ）
             ctx.beginPath();
-            ctx.strokeStyle = isScare ? '#ffffff' : '#00ff00';
+            ctx.strokeStyle = '#00ff00';
+            ctx.shadowBlur = 4;        // 少し光らせる
+            ctx.shadowColor = '#00ff00';
             ctx.lineWidth = 3;
-            ctx.moveTo(x - 2, points[points.length-1] || y);
-            ctx.lineTo(x, y);
+            ctx.moveTo(scanX - speed, lastY);
+            ctx.lineTo(scanX, targetY);
             ctx.stroke();
+            
+            // シャドウ効果をリセット（描画軽略化のため）
+            ctx.shadowBlur = 0;
 
-            points.push(y);
-            if (points.length > canvas.width) points.shift();
+            // 次のフレームのための記憶
+            lastY = targetY;
+            scanX += speed;
 
-            x += 2;
-            if (x > canvas.width) {
-                x = 0;
-                ctx.clearRect(0,0,canvas.width,canvas.height);
+            // 画面の右端に到達したら左端に戻る（エスケープスイープ）
+            if (scanX > canvas.width) {
+                scanX = 0;
             }
 
             requestAnimationFrame(draw);
         }
+
+        // 描画ループ開始
         draw();
     </script>
 </body>
