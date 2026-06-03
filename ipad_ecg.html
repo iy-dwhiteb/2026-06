@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iPad 1 - 心電図モニター</title>
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: monospace; }
+        canvas { display: block; width: 100%; height: 80%; }
+        #info { color: #00ff00; font-size: 24px; padding: 20px; display: flex; justify-content: space-between; }
+        .scare-mode { background: #ff0000 !important; animation: blink 0.2s infinite; }
+        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+    </style>
+</head>
+<body id="body">
+    <div id="info">
+        <div>PATIENT: UNKNOWN</div>
+        <div>BPM: <span id="bpm-display">70</span></div>
+    </div>
+    <canvas id="ecgCanvas"></canvas>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+        import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+        // ⚠️ あなたの Firebase 設定に置き換えてください
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+            databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT_ID.appspot.com",
+            messagingSenderId: "YOUR_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        // 内部ステート
+        let currentBpm = 70;
+        let isAuto = true;
+        let isScare = false;
+
+        // Firebase同期
+        onValue(ref(db, 'ecg'), (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                isAuto = data.auto ?? true;
+                isScare = data.scare ?? false;
+                if (!isAuto) currentBpm = data.bpm || 70;
+                
+                // お化け演出の背景切り替え
+                if (isScare) {
+                    document.getElementById('body').classList.add('scare-mode');
+                    document.getElementById('info').style.color = '#fff';
+                } else {
+                    document.getElementById('body').classList.remove('scare-mode');
+                    document.getElementById('info').style.color = '#00ff00';
+                }
+            }
+        });
+
+        // 心電図の描画ロジック
+        const canvas = document.getElementById('ecgCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight * 0.8;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        let x = 0;
+        let points = [];
+        let t = 0;
+
+        function draw() {
+            t += 0.05;
+            // 自動調整モードの時はBPMをサイン波でなだらかに揺らす
+            if (isAuto && !isScare) {
+                currentBpm = Math.floor(75 + Math.sin(t * 0.1) * 15);
+            } else if (isScare) {
+                currentBpm = 145; // お化け出現時は強制的に高鳴る
+            }
+            document.getElementById('bpm-display').textContent = currentBpm;
+
+            // 画面を少しずつ消して残像を作る
+            ctx.fillStyle = isScare ? 'rgba(255,0,0,0.05)' : 'rgba(0, 0, 0, 0.05)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 波形の計算
+            let y = canvas.height / 2;
+            let cycle = (60 / currentBpm) * 60; // 1拍のフレーム数目安
+            let pos = Math.floor(x) % Math.floor(cycle);
+
+            if (pos > 0 && pos < 5) y -= (pos * 10); // P波っぽいやつ
+            else if (pos >= 10 && pos < 13) y += (pos - 10) * 15; // Q波
+            else if (pos >= 13 && pos < 17) y -= (pos - 13) * 45; // R波（鋭い上向き）
+            else if (pos >= 17 && pos < 21) y += (pos - 17) * 35; // S波
+            else if (pos >= 30 && pos < 40) y -= Math.sin((pos-30)*Math.PI/10) * 20; // T波
+
+            // 線の描画
+            ctx.beginPath();
+            ctx.strokeStyle = isScare ? '#ffffff' : '#00ff00';
+            ctx.lineWidth = 3;
+            ctx.moveTo(x - 2, points[points.length-1] || y);
+            ctx.lineTo(x, y);
+            ctx.stroke();
+
+            points.push(y);
+            if (points.length > canvas.width) points.shift();
+
+            x += 2;
+            if (x > canvas.width) {
+                x = 0;
+                ctx.clearRect(0,0,canvas.width,canvas.height);
+            }
+
+            requestAnimationFrame(draw);
+        }
+        draw();
+    </script>
+</body>
+</html>
