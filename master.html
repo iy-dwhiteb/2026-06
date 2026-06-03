@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>マスターコントローラー（完全自動版）</title>
+    <title>マスターコントローラー（一括コピペ版）</title>
     <style>
         body { font-family: sans-serif; background: #111; color: #fff; padding: 20px; }
         .container { max-width: 800px; margin: 0 auto; }
@@ -15,11 +15,13 @@
         .btn-secondary.active { background: #00cc66; }
         .flex { display: flex; gap: 15px; align-items: center; margin-bottom: 15px; }
         label { font-size: 14px; color: #ccc; width: 140px; display: inline-block; }
-        input[type="text"], input[type="range"] { flex-grow: 1; padding: 8px; background: #333; border: 1px solid #555; color: #fff; border-radius: 4px; }
+        textarea { width: 100%; height: 180px; background: #333; border: 1px solid #555; color: #fff; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 13px; box-sizing: border-box; resize: none; }
+        input[type="range"] { flex-grow: 1; }
         #setup-screen { display: block; }
         #main-screen { display: none; }
         .link-box { background: #113311; border: 1px solid #00ff00; padding: 15px; border-radius: 6px; margin-bottom: 20px; }
         .link-box a { color: #00ff00; font-weight: bold; word-break: break-all; }
+        .help-text { color: #aaa; font-size: 14px; margin-bottom: 15px; line-height: 1.5; }
     </style>
 </head>
 <body>
@@ -27,16 +29,16 @@
         <h1>👻 お化け屋敷 統合制御システム</h1>
 
         <div id="setup-screen" class="card">
-            <h2>⚙️ Firebase 接続初期設定</h2>
-            <p style="color: #aaa; font-size: 14px;">Firebaseコンソールの「ウェブアプリの設定」を見ながら、以下の7つをコピペしてください。</p>
-            <div class="flex"><label>apiKey:</label><input type="text" id="cfg-apiKey" placeholder="AIzaSy..."></div>
-            <div class="flex"><label>authDomain:</label><input type="text" id="cfg-authDomain" placeholder="xxx.firebaseapp.com"></div>
-            <div class="flex"><label>databaseURL:</label><input type="text" id="cfg-databaseURL" placeholder="https://xxx.firebaseio.com"></div>
-            <div class="flex"><label>projectId:</label><input type="text" id="cfg-projectId" placeholder="xxx"></div>
-            <div class="flex"><label>storageBucket:</label><input type="text" id="cfg-storageBucket" placeholder="xxx.appspot.com"></div>
-            <div class="flex"><label>messagingSenderId:</label><input type="text" id="cfg-messagingSenderId" placeholder="123456789"></div>
-            <div class="flex"><label>appId:</label><input type="text" id="cfg-appId" placeholder="1:123:web:abc"></div>
-            <button id="connect-btn" style="background: #00cc66; width: 100%; font-size: 18px; padding: 15px;">保存してシステムを起動する</button>
+            <h2>⚙️ Firebase 設定一括貼り付け</h2>
+            <div class="help-text">
+                Firebaseコンソールの「ウェブアプリ」に表示される構成コード（<code>const firebaseConfig = { ... };</code> の中身、またはカンマ区切りの文字列）を<strong>そのまま丸ごと</strong>下の枠に貼り付けてください。
+            </div>
+            <textarea id="cfg-paste-area" placeholder="例：
+apiKey: &quot;AIzaSy...&quot;,
+authDomain: &quot;xxx.firebaseapp.com&quot;,
+databaseURL: &quot;https://xxx.firebaseio.com&quot;,
+...（ここへ丸ごとペースト）"></textarea>
+            <button id="connect-btn" style="background: #00cc66; width: 100%; font-size: 18px; padding: 15px; margin-top: 15px;">解析してシステムを起動する</button>
         </div>
 
         <div id="main-screen">
@@ -46,7 +48,7 @@
                 <p>🔵 <strong>② 音響A (ロッカー):</strong><br><a id="link-audioA" href="#" target="_blank">生成中...</a></p>
                 <p>🔵 <strong>③ 音響B (電話):</strong><br><a id="link-audioB" href="#" target="_blank">生成中...</a></p>
                 <p>🔵 <strong>④ 音響C (足音):</strong><br><a id="link-audioC" href="#" target="_blank">生成中...</a></p>
-                <button onclick="localStorage.clear(); location.reload();" class="btn-secondary" style="font-size: 12px; padding: 5px 10px;">⚙️ 設定をやり直す</button>
+                <button onclick="localStorage.clear(); location.reload();" class="btn-secondary" style="font-size: 12px; padding: 5px 10px;">⚙️ 設定をクリアしてやり直す</button>
             </div>
 
             <div class="card">
@@ -95,30 +97,65 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
         import { getDatabase, ref, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-        const keys = ['apiKey', 'authDomain', 'databaseURL', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
-        
         // 履歴があれば自動読み込み
-        if (localStorage.getItem('firebase_apiKey')) {
-            const savedConfig = {};
-            keys.forEach(k => savedConfig[k] = localStorage.getItem(`firebase_${k}`));
-            startSystem(savedConfig);
+        if (localStorage.getItem('saved_firebase_config')) {
+            try {
+                const savedConfig = JSON.parse(localStorage.getItem('saved_firebase_config'));
+                startSystem(savedConfig);
+            } catch(e) {
+                localStorage.clear();
+            }
         }
 
         document.getElementById('connect-btn').addEventListener('click', () => {
-            const config = {};
-            keys.forEach(k => {
-                const val = document.getElementById(`cfg-${k}`).value.trim();
-                config[k] = val;
-                localStorage.setItem(`firebase_${k}`, val);
-            });
+            const rawText = document.getElementById('cfg-paste-area').value;
+            if (!rawText.trim()) {
+                alert("文字が入力されていません。");
+                return;
+            }
+
+            const config = parseFirebaseConfig(rawText);
+            
+            if (!config.apiKey || !config.databaseURL) {
+                alert("解析に失敗しました。apiKey や databaseURL が含まれているか確認してください。\nカンマ区切り、またはFirebaseのコードブロックをそのまま貼り付けてください。");
+                return;
+            }
+
+            localStorage.setItem('saved_firebase_config', JSON.stringify(config));
             startSystem(config);
         });
+
+        // 貼り付けられたテキストから必要な7つのキーを自動抽出する賢い関数
+        function parseFirebaseConfig(text) {
+            const keys = ['apiKey', 'authDomain', 'databaseURL', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
+            const result = {};
+
+            // 改行、カンマ、クォーテーションを考慮して抽出
+            keys.forEach(key => {
+                // 正規表現で「キー名: "値"」や「"キー名": '値'」のパターンを幅広く探す
+                const regex = new RegExp(`['"]?${key}['"]?\\s*[:=]\\s*['"]([^'"]+)['"]`);
+                const match = text.match(regex);
+                if (match && match[1]) {
+                    result[key] = match[1].trim();
+                }
+            });
+
+            // もしカンマ区切りのみの単純な文字列（順番通り：apiKey,authDomain,databaseURL...）だった場合のフォールバック
+            if (Object.keys(result).length === 0) {
+                const values = text.split(',').map(v => v.replace(/['"{}[:\]\s]/g, '').trim());
+                if (values.length >= 7) {
+                    keys.forEach((key, index) => {
+                        result[key] = values[index];
+                    });
+                }
+            }
+            return result;
+        }
 
         function startSystem(config) {
             document.getElementById('setup-screen').style.display = 'none';
             document.getElementById('main-screen').style.display = 'block';
 
-            // iPad用の設定パラメータを暗号化（Base64）してURLを生成
             const cfgToken = btoa(encodeURIComponent(JSON.stringify(config)));
             const baseUrl = window.location.href.split('?')[0].replace('master.html', '');
             
@@ -131,11 +168,8 @@
                 document.getElementById(`link-${id}`).textContent = url;
             });
 
-            // Firebase初期化
             const app = initializeApp(config);
             const db = getDatabase(app);
-
-            // コントロールロジック結合
             bindControls(db);
         }
 
