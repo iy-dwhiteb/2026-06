@@ -3,34 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>iPad 1 - リアル心電図モニター(音源持ち込み版)</title>
+    <title>iPad 1 - 心電図モニター(セキュリティ対策版)</title>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: monospace; }
         canvas { display: block; width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 1; }
-        
-        /* BPMを画面右上に大きく配置 */
-        #info { 
-            position: absolute; top: 30px; right: 40px; 
-            color: #00ff00; font-size: 64px; font-weight: bold; 
-            z-index: 10; text-align: right; pointer-events: none;
-        }
+        #info { position: absolute; top: 30px; right: 40px; color: #00ff00; font-size: 64px; font-weight: bold; z-index: 10; text-align: right; pointer-events: none; }
         #info span { font-size: 96px; } 
-        
-        /* スタートボタン */
         #start-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.95); display:flex; justify-content:center; align-items:center; z-index:100; }
         #start-btn { background: #052c05; color: #00ff00; border: 2px solid #00ff00; padding: 25px 50px; font-size: 22px; border-radius: 8px; cursor: pointer; font-weight: bold; }
-        
-        /* お化け襲来演出 (obake.png) */
         #scare-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background-image: url('obake.png'); 
-            background-size: cover; background-position: center;
-            display: none; z-index: 50;
-            animation: shake 0.08s infinite;
+            background-image: url('obake.png'); background-size: cover; background-position: center;
+            display: none; z-index: 50; animation: shake 0.08s infinite;
         }
         @keyframes shake {
             0% { transform: translate(0, 0); }
-            25 { transform: translate(-10px, 10px); }
+            25% { transform: translate(-10px, 10px); }
             50% { transform: translate(-10px, -10px); }
             75% { transform: translate(10px, 10px); }
             100% { transform: translate(10px, -10px); }
@@ -55,46 +43,38 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
         import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-        // ⚠️ 共通の固定設定だけ書いておく
-const baseConfig = {
-    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-    databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_PROJECT_ID.appspot.com",
-    messagingSenderId: "YOUR_SENDER_ID",
-    appId: "YOUR_APP_ID"
-};
+        // URLパラメータからapiKeyを取得するロジックを追加
+        const urlParams = new URLSearchParams(window.location.search);
+        const dynamicApiKey = urlParams.get('key');
 
-// 画面を開いたときに、パスワードのようにAPIキーを要求する
-const userApiKey = prompt("FirebaseのAPIキーを入力してください:");
+        if (!dynamicApiKey) {
+            alert("エラー: URLの末尾に「?key=あなたのAPIキー」が必要です！");
+        }
 
-if (!userApiKey) {
-    alert("APIキーが入力されなかったため、通信機能は動きません。");
-}
+        // ⚠️ ここにはAPIキー以外（一般公開してよい情報）を記述します
+        const firebaseConfig = {
+            apiKey: dynamicApiKey, // URLから取得したキーを合体
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+            databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT_ID.appspot.com",
+            messagingSenderId: "YOUR_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
 
-// 入力されたキーと合体させる
-const firebaseConfig = {
-    apiKey: userApiKey,
-    ...baseConfig
-};
-
-// あとは通常通り初期化
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
 
         let currentBpm = 70;
         let isAuto = true;
         let isScare = false;
         let isReady = false;
 
-        // 音源の準備
-        const bpmAudio = new Audio('sindenzu.MP3'); // 持ち込んでいただいた心音
-        const scareAudio = new Audio('scare_sound.mp3'); // お化けの爆音
+        const bpmAudio = new Audio('sindenzu.MP3'); 
+        const scareAudio = new Audio('scare_sound.mp3'); 
         scareAudio.volume = 1.0;
 
-        // iPadの音声制限解除
         document.getElementById('start-btn').addEventListener('click', () => {
-            // 両方の音を一度再生して即一時停止
             Promise.all([
                 bpmAudio.play().then(() => { bpmAudio.pause(); bpmAudio.currentTime = 0; }),
                 scareAudio.play().then(() => { scareAudio.pause(); scareAudio.currentTime = 0; })
@@ -102,21 +82,17 @@ const db = getDatabase(app);
                 isReady = true;
                 document.getElementById('start-overlay').style.display = 'none';
             }).catch(e => {
-                // ファイル名ミスなどがあっても画面だけは動くようにするバックアップ
                 isReady = true;
                 document.getElementById('start-overlay').style.display = 'none';
-                console.log("音源のロードに失敗、またはファイルがありません");
             });
         });
 
-        // 心拍音を鳴らす関数（エコーなし・ストレート再生）
         function playHeartbeat() {
             if (!isReady || isScare) return;
-            bpmAudio.currentTime = 0; // 必ず頭出しする
+            bpmAudio.currentTime = 0;
             bpmAudio.play().catch(e => console.log(e));
         }
 
-        // Firebaseリアルタイム監視
         let lastScareState = false;
         onValue(ref(db, 'ecg'), (snapshot) => {
             const data = snapshot.val();
@@ -126,7 +102,6 @@ const db = getDatabase(app);
                 if (!isAuto) currentBpm = data.bpm || 70;
                 
                 if (isScare && !lastScareState) {
-                    // 画像表示とお化け音を完全に同時トリガー
                     document.getElementById('scare-overlay').style.display = 'block';
                     if (isReady) {
                         scareAudio.currentTime = 0;
@@ -155,7 +130,6 @@ const db = getDatabase(app);
         let lastY = canvas.height / 2;
         let lastTime = performance.now();
         let beatTimer = 0;
-
         let nextBpmChangeTime = 0;
         let targetAutoBpm = 72;
         let isArrhythmia = false;
@@ -165,7 +139,6 @@ const db = getDatabase(app);
             lastTime = currentTime;
             if (deltaTime > 100) deltaTime = 16.6; 
 
-            // 不自然な自動BPMロジック
             if (isAuto && !isScare) {
                 if (currentTime > nextBpmChangeTime) {
                     if (Math.random() < 0.30 && !isArrhythmia) {
@@ -188,7 +161,6 @@ const db = getDatabase(app);
             let beatInterval = (60 / currentBpm) * 1000;
             beatTimer += deltaTime;
 
-            // 正確な時間で持ち込み音源を鳴らす
             if (beatTimer >= beatInterval) {
                 beatTimer = beatTimer % beatInterval;
                 playHeartbeat(); 
@@ -238,7 +210,6 @@ const db = getDatabase(app);
 
             requestAnimationFrame(draw);
         }
-
         requestAnimationFrame(draw);
     </script>
 </body>
