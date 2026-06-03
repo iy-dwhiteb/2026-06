@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iPad 音響ターミナル</title>
+    <style>
+        body { background: #000; color: #333; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: sans-serif; }
+        #start-btn { background: #222; color: #888; border: 2px solid #333; padding: 20px 40px; font-size: 18px; border-radius: 8px; cursor: pointer; }
+        #start-btn.ready { background: #052c05; color: #00ff00; border-color: #00ff00; }
+        #status { position: absolute; bottom: 20px; font-size: 12px; color: #444; }
+    </style>
+</head>
+<body>
+
+    <button id="start-btn">タップしてシステム開始 (音響解放)</button>
+    <div id="status">未接続</div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+        import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+        // ⚠️ あなたの Firebase 設定に置き換えてください
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+            databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT_ID.appspot.com",
+            messagingSenderId: "YOUR_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        // URLから自分のID（audioA, audioB, audioC）を取得する
+        const urlParams = new URLSearchParams(window.location.search);
+        const myId = urlParams.get('id') || 'audioA';
+        document.getElementById('status').textContent = `端末ID: ${myId} - 待機中`;
+
+        // オーディオファイルの準備（htmlファイルと同じフォルダに置いてください）
+        // IDごとに再生するファイル名を自動で切り替えます
+        const audio = new Audio(`${myId}.mp3`); 
+
+        let lastTrigger = 0;
+        let loopIntervalId = null;
+        let isReady = false;
+
+        // iOSの音制限を解除するタップイベント
+        const startBtn = document.getElementById('start-btn');
+        startBtn.addEventListener('click', () => {
+            audio.play().then(() => {
+                audio.pause(); // 一瞬流してすぐ止めることでロック解除
+                audio.currentTime = 0;
+                isReady = true;
+                startBtn.textContent = "システム稼働中... (画面はこのまま)";
+                startBtn.classList.add('ready');
+            }).catch(e => alert("オーディオの起動に失敗しました。"));
+        });
+
+        // Firebaseの命令を監視
+        onValue(ref(db, `audio/${myId}`), (snapshot) => {
+            const data = snapshot.val();
+            if (!data || !isReady) return;
+
+            // 1. 一発再生トリガーの検知（タイムスタンプが変わったら再生）
+            if (data.trigger && data.trigger !== lastTrigger) {
+                lastTrigger = data.trigger;
+                playSound();
+            }
+
+            // 2. 周期（ループ）再生のコントロール
+            clearInterval(loopIntervalId);
+            if (data.loop && data.interval) {
+                loopIntervalId = setInterval(() => {
+                    playSound();
+                }, data.interval * 1000);
+            }
+        });
+
+        function playSound() {
+            if (!isReady) return;
+            audio.currentTime = 0; // 最初から再生
+            audio.play().catch(e => console.log("再生ブロック:", e));
+        }
+    </script>
+</body>
+</html>
