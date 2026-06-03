@@ -20,19 +20,32 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
         import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-        // ⚠️ あなたの Firebase 設定に置き換えてください
-        const firebaseConfig = {
-    apiKey: "AIzaSyBim5cUqruA95jBJ_WgrO7W7A79Ugoyl_c",
-    authDomain: "project-1857534204298442592.firebaseapp.com",
-    databaseURL: "https://project-1857534204298442592-default-rtdb.firebaseio.com",
-    projectId: "project-1857534204298442592",
-    storageBucket: "project-1857534204298442592.firebasestorage.app",
-    messagingSenderId: "34184873831",
-    appId: "1:34184873831:web:1c984c7e1c34ca57d191c2"
-  };
+        // ⚠️ 共通の固定設定だけ書いておく
+const baseConfig = {
+    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+    databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT_ID.appspot.com",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
+};
 
-        const app = initializeApp(firebaseConfig);
-        const db = getDatabase(app);
+// 画面を開いたときに、パスワードのようにAPIキーを要求する
+const userApiKey = prompt("FirebaseのAPIキーを入力してください:");
+
+if (!userApiKey) {
+    alert("APIキーが入力されなかったため、通信機能は動きません。");
+}
+
+// 入力されたキーと合体させる
+const firebaseConfig = {
+    apiKey: userApiKey,
+    ...baseConfig
+};
+
+// あとは通常通り初期化
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
 
         // URLから自分のID（audioA, audioB, audioC）を取得する
         const urlParams = new URLSearchParams(window.location.search);
