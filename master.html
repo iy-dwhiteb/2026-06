@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>お化け屋敷 - マスターコントローラー</title>
+    <title>お化け屋敷 - マスターコントローラー（GitHub対応版）</title>
     <style>
         body { font-family: sans-serif; background: #111; color: #fff; padding: 20px; }
         .container { max-width: 800px; margin: 0 auto; }
@@ -70,32 +70,27 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
         import { getDatabase, ref, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-        // ⚠️ 共通の固定設定だけ書いておく
-const baseConfig = {
-    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-    databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_PROJECT_ID.appspot.com",
-    messagingSenderId: "YOUR_SENDER_ID",
-    appId: "YOUR_APP_ID"
-};
+        // URLパラメータからapiKeyを取得するロジックをマスターにも追加
+        const urlParams = new URLSearchParams(window.location.search);
+        const dynamicApiKey = urlParams.get('key');
 
-// 画面を開いたときに、パスワードのようにAPIキーを要求する
-const userApiKey = prompt("FirebaseのAPIキーを入力してください:");
+        if (!dynamicApiKey) {
+            alert("エラー: URLの末尾に「?key=あなたのAPIキー」が必要です！");
+        }
 
-if (!userApiKey) {
-    alert("APIキーが入力されなかったため、通信機能は動きません。");
-}
+        // ⚠️ ここにはAPIキー以外（一般公開してよい情報）を記述します
+        const firebaseConfig = {
+            apiKey: dynamicApiKey, // URLから取得したキーを合体
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+            databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT_ID.appspot.com",
+            messagingSenderId: "YOUR_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
 
-// 入力されたキーと合体させる
-const firebaseConfig = {
-    apiKey: userApiKey,
-    ...baseConfig
-};
-
-// あとは通常通り初期化
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
 
         let autoBpm = true;
         let loops = { audioA: false, audioB: false, audioC: false };
@@ -125,9 +120,7 @@ const db = getDatabase(app);
         });
 
         function sendAudioTrigger(id) {
-            const data = {};
-            data[`audio/${id}/trigger`] = Date.now();
-            update(ref(db), data);
+            update(ref(db, `audio/${id}`), { trigger: Date.now() });
         }
 
         function sendAudioLoop(id) {
@@ -139,10 +132,10 @@ const db = getDatabase(app);
             btn.textContent = `周期再生: ${loops[id] ? 'ON' : 'OFF'}`;
             btn.classList.toggle('active', loops[id]);
 
-            const data = {};
-            data[`audio/${id}/loop`] = loops[id];
-            data[`audio/${id}/interval`] = parseInt(intervalInput.value) || 5;
-            update(ref(db), data);
+            update(ref(db, `audio/${id}`), {
+                loop: loops[id],
+                interval: parseInt(intervalInput.value) || 5
+            });
         }
 
         document.getElementById('triggerA-btn').addEventListener('click', () => sendAudioTrigger('audioA'));
