@@ -3,225 +3,108 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>iPad 1 - 心電図モニター（エラー回避版）</title>
+    <title>心電図モニター（自動受信版）</title>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: monospace; }
         canvas { display: block; width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 1; }
-        
-        #info { 
-            position: absolute; top: 30px; right: 40px; 
-            color: #00ff00; font-size: 64px; font-weight: bold; 
-            z-index: 10; text-align: right; pointer-events: none;
-        }
+        #info { position: absolute; top: 30px; right: 40px; color: #00ff00; font-size: 64px; font-weight: bold; z-index: 10; text-align: right; pointer-events: none; }
         #info span { font-size: 96px; } 
-        
         #start-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.95); display:flex; justify-content:center; align-items:center; z-index:100; }
         #start-btn { background: #052c05; color: #00ff00; border: 2px solid #00ff00; padding: 25px 50px; font-size: 22px; border-radius: 8px; cursor: pointer; font-weight: bold; }
-        
-        #scare-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background-image: url('obake.png'); 
-            background-size: cover; background-position: center;
-            display: none; z-index: 50;
-            animation: shake 0.08s infinite;
-        }
-        @keyframes shake {
-            0% { transform: translate(0, 0); }
-            25% { transform: translate(-10px, 10px); }
-            50% { transform: translate(-10px, -10px); }
-            75% { transform: translate(10px, 10px); }
-            100% { transform: translate(10px, -10px); }
-        }
+        #scare-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-image: url('obake.png'); background-size: cover; background-position: center; display: none; z-index: 50; animation: shake 0.08s infinite; }
+        @keyframes shake { 0% { transform: translate(0, 0); } 25% { transform: translate(-10px, 10px); } 50% { transform: translate(-10px, -10px); } 75% { transform: translate(10px, 10px); } 100% { transform: translate(10px, -10px); } }
     </style>
 </head>
 <body>
-
-    <div id="start-overlay">
-        <button id="start-btn">TAP TO START (心電図開始)</button>
-    </div>
-
+    <div id="start-overlay"><button id="start-btn">TAP TO START (心電図開始)</button></div>
     <div id="scare-overlay"></div>
-
-    <div id="info">
-        BPM<br><span id="bpm-display">70</span>
-    </div>
-    
+    <div id="info">BPM<br><span id="bpm-display">70</span></div>
     <canvas id="ecgCanvas"></canvas>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
         import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-        // URLパラメータの取得（なくても動くように対策）
         const urlParams = new URLSearchParams(window.location.search);
-        const dynamicApiKey = urlParams.get('key') || "";
+        const cfg = urlParams.get('cfg');
 
-        // ⚠️ YOUR_PROJECT_ID などの書き換えをお願いします
-        const firebaseConfig = {
-            apiKey: dynamicApiKey,
-            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-            databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
-            projectId: "YOUR_PROJECT_ID",
-            storageBucket: "YOUR_PROJECT_ID.appspot.com",
-            messagingSenderId: "YOUR_SENDER_ID",
-            appId: "YOUR_APP_ID"
-        };
+        if (!cfg) {
+            alert("エラー: マスター機から生成された正しいURLでアクセスしてください。");
+        } else {
+            const firebaseConfig = JSON.parse(decodeURIComponent(atob(cfg)));
+            const app = initializeApp(firebaseConfig);
+            const db = getDatabase(app);
+            startEcg(db);
+        }
 
-        const app = initializeApp(firebaseConfig);
-        const db = getDatabase(app);
+        function startEcg(db) {
+            let currentBpm = 70; let isAuto = true; let isScare = false; let isReady = false;
+            const bpmAudio = new Audio('sindenzu.MP3');
+            const scareAudio = new Audio('scare_sound.mp3'); scareAudio.volume = 1.0;
 
-        // 変数の準備
-        let currentBpm = 70;
-        let isAuto = true;
-        let isScare = false;
-        let isReady = false;
-
-        const bpmAudio = new Audio('sindenzu.MP3'); 
-        const scareAudio = new Audio('scare_sound.mp3'); 
-        scareAudio.volume = 1.0;
-
-        // ボタンが確実に反応するように、最優先でイベントを設置
-        document.getElementById('start-btn').addEventListener('click', () => {
-            document.getElementById('start-overlay').style.display = 'none';
-            
-            // iPadの音声制限解除
-            Promise.all([
-                bpmAudio.play().then(() => { bpmAudio.pause(); bpmAudio.currentTime = 0; }),
-                scareAudio.play().then(() => { scareAudio.pause(); scareAudio.currentTime = 0; })
-            ]).then(() => {
-                isReady = true;
-            }).catch(e => {
-                isReady = true; // 音源がなくても処理は進める
-                console.log("Audio load error bypass");
+            document.getElementById('start-btn').addEventListener('click', () => {
+                document.getElementById('start-overlay').style.display = 'none';
+                Promise.all([
+                    bpmAudio.play().then(() => { bpmAudio.pause(); bpmAudio.currentTime = 0; }),
+                    scareAudio.play().then(() => { scareAudio.pause(); scareAudio.currentTime = 0; })
+                ]).then(() => { isReady = true; }).catch(() => { isReady = true; });
             });
-        });
 
-        function playHeartbeat() {
-            if (!isReady || isScare) return;
-            bpmAudio.currentTime = 0;
-            bpmAudio.play().catch(e => console.log(e));
-        }
-
-        // Firebase監視
-        let lastScareState = false;
-        onValue(ref(db, 'ecg'), (snapshot) => {
-            const data = snapshot.val();
-            if (data) {
-                isAuto = data.auto ?? true;
-                isScare = data.scare ?? false;
-                if (!isAuto) currentBpm = data.bpm || 70;
-                
-                if (isScare && !lastScareState) {
-                    document.getElementById('scare-overlay').style.display = 'block';
-                    if (isReady) {
-                        scareAudio.currentTime = 0;
-                        scareAudio.play().catch(e => console.log(e));
+            let lastScareState = false;
+            onValue(ref(db, 'ecg'), (snapshot) => {
+                const data = snapshot.val();
+                if (data) {
+                    isAuto = data.auto ?? true;
+                    isScare = data.scare ?? false;
+                    if (!isAuto) currentBpm = data.bpm || 70;
+                    if (isScare && !lastScareState) {
+                        document.getElementById('scare-overlay').style.display = 'block';
+                        if (isReady) { scareAudio.currentTime = 0; scareAudio.play().catch(e => console.log(e)); }
+                    } else if (!isScare && lastScareState) {
+                        document.getElementById('scare-overlay').style.display = 'none';
                     }
-                } else if (!isScare && lastScareState) {
-                    document.getElementById('scare-overlay').style.display = 'none';
+                    lastScareState = isScare;
                 }
-                lastScareState = isScare;
-            }
-        });
+            });
 
-        // 描画ロジック
-        const canvas = document.getElementById('ecgCanvas');
-        const ctx = canvas.getContext('2d');
-        
-        function resize() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-            ctx.fillStyle = '#000';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-        }
-        window.addEventListener('resize', resize);
-        resize();
+            const canvas = document.getElementById('ecgCanvas'); const ctx = canvas.getContext('2d');
+            function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+            window.addEventListener('resize', resize); resize();
 
-        let scanX = 0;
-        let lastY = canvas.height / 2;
-        let lastTime = performance.now();
-        let beatTimer = 0;
-        let nextBpmChangeTime = 0;
-        let targetAutoBpm = 72;
-        let isArrhythmia = false;
+            let scanX = 0; let lastY = canvas.height / 2; let lastTime = performance.now(); let beatTimer = 0;
+            let nextBpmChangeTime = 0; let targetAutoBpm = 72; let isArrhythmia = false;
 
-        function draw(currentTime) {
-            let deltaTime = currentTime - lastTime;
-            lastTime = currentTime;
-            if (deltaTime > 100) deltaTime = 16.6; 
-
-            if (isAuto && !isScare) {
-                if (currentTime > nextBpmChangeTime) {
-                    if (Math.random() < 0.30 && !isArrhythmia) {
-                        isArrhythmia = true;
-                        targetAutoBpm = Math.floor(110 + Math.random() * 20);
-                        nextBpmChangeTime = currentTime + (1500 + Math.random() * 2000);
-                    } else {
-                        isArrhythmia = false;
-                        targetAutoBpm = Math.floor(68 + Math.random() * 8);
-                        nextBpmChangeTime = currentTime + (4000 + Math.random() * 6000);
+            function draw(currentTime) {
+                let deltaTime = currentTime - lastTime; lastTime = currentTime;
+                if (deltaTime > 100) deltaTime = 16.6;
+                if (isAuto && !isScare) {
+                    if (currentTime > nextBpmChangeTime) {
+                        if (Math.random() < 0.30 && !isArrhythmia) {
+                            isArrhythmia = true; targetAutoBpm = Math.floor(110 + Math.random() * 20); nextBpmChangeTime = currentTime + 1500;
+                        } else {
+                            isArrhythmia = false; targetAutoBpm = Math.floor(68 + Math.random() * 8); nextBpmChangeTime = currentTime + 4000;
+                        }
                     }
-                }
-                currentBpm += (targetAutoBpm - currentBpm) * 0.08;
-            } else if (isScare) {
-                currentBpm = 180;
+                    currentBpm += (targetAutoBpm - currentBpm) * 0.08;
+                } else if (isScare) { currentBpm = 180; }
+                document.getElementById('bpm-display').textContent = isScare ? "???" : Math.round(currentBpm);
+                let beatInterval = (60 / currentBpm) * 1000; beatTimer += deltaTime;
+                if (beatTimer >= beatInterval) { beatTimer = beatTimer % beatInterval; if (isReady && !isScare) { bpmAudio.currentTime = 0; bpmAudio.play().catch(e => console.log(e)); } }
+                let speed = (canvas.width / 4500) * deltaTime; if (speed < 1) speed = 1;
+                let targetY = canvas.height / 2; let ms = beatTimer; let waveHeight = canvas.height * 0.35;
+                if (ms > 0 && ms < 60) targetY -= (waveHeight * 0.06);
+                else if (ms >= 90 && ms < 120) targetY += (waveHeight * 0.12);
+                else if (ms >= 120 && ms < 150) { let percent = (ms - 120) / 30; targetY -= waveHeight * Math.sin(percent * Math.PI); }
+                else if (ms >= 150 && ms < 180) targetY += (waveHeight * 0.28);
+                else if (ms >= 250 && ms < 380) { let percent = (ms - 250) / 130; targetY -= (waveHeight * 0.15) * Math.sin(percent * Math.PI); }
+                if (isScare) targetY = (canvas.height / 2) + (Math.random() - 0.5) * (canvas.height * 0.9);
+                ctx.fillStyle = '#000'; ctx.fillRect(scanX, 0, speed + 30, canvas.height);
+                ctx.beginPath(); ctx.strokeStyle = isScare ? '#ff0000' : '#00ff00'; ctx.lineWidth = 4; ctx.moveTo(scanX - speed, lastY); ctx.lineTo(scanX, targetY); ctx.stroke();
+                lastY = targetY; scanX += speed; if (scanX > canvas.width) scanX = 0;
+                requestAnimationFrame(draw);
             }
-            
-            document.getElementById('bpm-display').textContent = isScare ? "???" : Math.round(currentBpm);
-
-            let beatInterval = (60 / currentBpm) * 1000;
-            beatTimer += deltaTime;
-
-            if (beatTimer >= beatInterval) {
-                beatTimer = beatTimer % beatInterval;
-                playHeartbeat(); 
-            }
-
-            let speed = (canvas.width / 4500) * deltaTime;
-            if (speed < 1) speed = 1;
-
-            let targetY = canvas.height / 2;
-            let ms = beatTimer; 
-            let waveHeight = canvas.height * 0.35; 
-
-            if (ms > 0 && ms < 60) {
-                targetY -= (waveHeight * 0.06);
-            } else if (ms >= 90 && ms < 120) {
-                targetY += (waveHeight * 0.12);
-            } else if (ms >= 120 && ms < 150) {
-                let percent = (ms - 120) / 30;
-                targetY -= waveHeight * Math.sin(percent * Math.PI); 
-            } else if (ms >= 150 && ms < 180) {
-                targetY += (waveHeight * 0.28);
-            } else if (ms >= 250 && ms < 380) {
-                let percent = (ms - 250) / 130;
-                targetY -= (waveHeight * 0.15) * Math.sin(percent * Math.PI);
-            }
-
-            if (isScare) {
-                targetY = (canvas.height / 2) + (Math.random() - 0.5) * (canvas.height * 0.9);
-            }
-
-            ctx.fillStyle = '#000';
-            ctx.fillRect(scanX, 0, speed + 30, canvas.height);
-
-            ctx.beginPath();
-            ctx.strokeStyle = isScare ? '#ff0000' : '#00ff00';
-            ctx.lineWidth = 4;
-            ctx.moveTo(scanX - speed, lastY);
-            ctx.lineTo(scanX, targetY);
-            ctx.stroke();
-
-            lastY = targetY;
-            scanX += speed;
-
-            if (scanX > canvas.width) {
-                scanX = 0;
-            }
-
             requestAnimationFrame(draw);
         }
-        requestAnimationFrame(draw);
     </script>
 </body>
 </html>
