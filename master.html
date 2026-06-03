@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>お化け屋敷 - マスターコントローラー</title>
+    <style>
+        body { font-family: sans-serif; background: #111; color: #fff; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .card { background: #222; padding: 20px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #333; }
+        h2 { margin-top: 0; color: #ff4d4d; border-bottom: 2px solid #ff4d4d; padding-bottom: 5px; }
+        button { background: #ff4d4d; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        button:active { background: #cc0000; }
+        .btn-secondary { background: #444; }
+        .btn-secondary.active { background: #00cc66; }
+        .flex { display: flex; gap: 15px; align-items: center; margin-bottom: 15px; }
+        label { font-size: 14px; color: #ccc; }
+        input[type="range"] { flex-grow: 1; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>👻 お化け屋敷 マスター制御システム</h1>
+        
+        <div class="card">
+            <h2>iPad ① : 心電図ギミック</h2>
+            <div class="flex">
+                <button id="scare-btn" style="background: #ff0000; font-size: 20px; width: 100%;">🚨 お化け出現！（手動トリガー）</button>
+            </div>
+            <div class="flex">
+                <button id="auto-bpm-btn" class="btn-secondary active">自動心拍調整: ON</button>
+                <label>手動心拍数 (BPM): <span id="bpm-val">70</span></label>
+                <input type="range" id="bpm-slider" min="50" max="160" value="70" disabled>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>iPad ②〜④ : 音響遠隔操作</h2>
+            
+            <div style="border-bottom: 1px solid #444; padding-bottom: 15px; margin-bottom: 15px;">
+                <h3>🔊 音響端末 A (ロッカー等)</h3>
+                <div class="flex">
+                    <button onclick="triggerAudio('audioA')">一発再生</button>
+                    <button id="loopA-btn" class="btn-secondary" onclick="toggleLoop('audioA')">周期再生: OFF</button>
+                    <label>間隔: <input type="number" id="intervalA" value="5" style="width: 50px; padding: 5px;"> 秒</label>
+                </div>
+            </div>
+
+            <div style="border-bottom: 1px solid #444; padding-bottom: 15px; margin-bottom: 15px;">
+                <h3>🔊 音響端末 B (電話等)</h3>
+                <div class="flex">
+                    <button onclick="triggerAudio('audioB')">一発再生</button>
+                    <button id="loopB-btn" class="btn-secondary" onclick="toggleLoop('audioB')">周期再生: OFF</button>
+                    <label>間隔: <input type="number" id="intervalB" value="5" style="width: 50px; padding: 5px;"> 秒</label>
+                </div>
+            </div>
+
+            <div>
+                <h3>🔊 音響端末 C (足音・環境音等)</h3>
+                <div class="flex">
+                    <button onclick="triggerAudio('audioC')">一発再生</button>
+                    <button id="loopC-btn" class="btn-secondary" onclick="toggleLoop('audioC')">周期再生: OFF</button>
+                    <label>間隔: <input type="number" id="intervalC" value="5" style="width: 50px; padding: 5px;"> 秒</label>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+        import { getDatabase, ref, set, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+        // ⚠️ あなたの Firebase 設定に置き換えてください
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+            databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT_ID.appspot.com",
+            messagingSenderId: "YOUR_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        // 状態管理用変数
+        let autoBpm = true;
+        let loops = { audioA: false, audioB: false, audioC: false };
+
+        // --- 心電図イベント ---
+        const scareBtn = document.getElementById('scare-btn');
+        const autoBpmBtn = document.getElementById('auto-bpm-btn');
+        const bpmSlider = document.getElementById('bpm-slider');
+        const bpmVal = document.getElementById('bpm-val');
+
+        // お化け出現ボタン（押した瞬間だけ真、1秒後に自動で偽に戻る）
+        scareBtn.addEventListener('click', () => {
+            update(ref(db, 'ecg'), { scare: true });
+            setTimeout(() => { update(ref(db, 'ecg'), { scare: false }); }, 1000);
+        });
+
+        // 自動・手動切り替え
+        autoBpmBtn.addEventListener('click', () => {
+            autoBpm = !autoBpm;
+            autoBpmBtn.textContent = `自動心拍調整: ${autoBpm ? 'ON' : 'OFF'}`;
+            autoBpmBtn.classList.toggle('active', autoBpm);
+            bpmSlider.disabled = autoBpm;
+            update(ref(db, 'ecg'), { auto: autoBpm });
+        });
+
+        // スライダー変更時
+        bpmSlider.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            bpmVal.textContent = val;
+            update(ref(db, 'ecg'), { bpm: val });
+        });
+
+        // --- 音響イベント ---
+        window.triggerAudio = function(id) {
+            update(ref(db, `audio/${id}`), { trigger: Date.now() });
+        };
+
+        window.toggleLoop = function(id) {
+            loops[id] = !loops[id];
+            const suffix = id.replace('audio', ''); // A, B, or C
+            const btn = document.getElementById(`loop${suffix}-btn`);
+            const intervalInput = document.getElementById(`interval${suffix}`);
+            
+            btn.textContent = `周期再生: ${loops[id] ? 'ON' : 'OFF'}`;
+            btn.classList.toggle('active', loops[id]);
+
+            update(ref(db, `audio/${id}`), {
+                loop: loops[id],
+                interval: parseInt(intervalInput.value) || 5
+            });
+        };
+    </script>
+</body>
+</html>
