@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>お化け屋敷 - マスターコントローラー（GitHub対応版）</title>
+    <title>お化け屋敷 - マスターコントローラー（同期修正版）</title>
     <style>
         body { font-family: sans-serif; background: #111; color: #fff; padding: 20px; }
         .container { max-width: 800px; margin: 0 auto; }
@@ -16,11 +16,14 @@
         .flex { display: flex; gap: 15px; align-items: center; margin-bottom: 15px; }
         label { font-size: 14px; color: #ccc; }
         input[type="range"] { flex-grow: 1; }
+        #connection-status { background: #333; padding: 10px; border-radius: 4px; text-align: center; font-weight: bold; margin-bottom: 20px; color: #ff4d4d; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>👻 お化け屋敷 マスター制御システム</h1>
+        
+        <div id="connection-status">Firebase 接続を初期化中...</div>
         
         <div class="card">
             <h2>iPad ① : 心電図ギミック</h2>
@@ -70,81 +73,96 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
         import { getDatabase, ref, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-        // URLパラメータからapiKeyを取得するロジックをマスターにも追加
+        // URLから安全にAPIキーを取得
         const urlParams = new URLSearchParams(window.location.search);
         const dynamicApiKey = urlParams.get('key');
 
         if (!dynamicApiKey) {
+            document.getElementById('connection-status').textContent = "❌ エラー: URLの末尾に「?key=APIキー」がありません！";
             alert("エラー: URLの末尾に「?key=あなたのAPIキー」が必要です！");
+        } else {
+            // Firebase設定
+            const firebaseConfig = {
+                apiKey: dynamicApiKey,
+                authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+                databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
+                projectId: "YOUR_PROJECT_ID",
+                storageBucket: "YOUR_PROJECT_ID.appspot.com",
+                messagingSenderId: "YOUR_SENDER_ID",
+                appId: "YOUR_APP_ID"
+            };
+
+            // 初期化
+            const app = initializeApp(firebaseConfig);
+            const db = getDatabase(app);
+
+            // 接続成功表示
+            document.getElementById('connection-status').textContent = "🟢 Firebase 連動システム正常稼働中";
+            document.getElementById('connection-status').style.color = "#00cc66";
+
+            // メイン処理の開始
+            initMasterSystem(db);
         }
 
-        // ⚠️ ここにはAPIキー以外（一般公開してよい情報）を記述します
-        const firebaseConfig = {
-            apiKey: dynamicApiKey, // URLから取得したキーを合体
-            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-            databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
-            projectId: "YOUR_PROJECT_ID",
-            storageBucket: "YOUR_PROJECT_ID.appspot.com",
-            messagingSenderId: "YOUR_SENDER_ID",
-            appId: "YOUR_APP_ID"
-        };
+        function initMasterSystem(db) {
+            let autoBpm = true;
+            let loops = { audioA: false, audioB: false, audioC: false };
 
-        const app = initializeApp(firebaseConfig);
-        const db = getDatabase(app);
+            const scareBtn = document.getElementById('scare-btn');
+            const autoBpmBtn = document.getElementById('auto-bpm-btn');
+            const bpmSlider = document.getElementById('bpm-slider');
+            const bpmVal = document.getElementById('bpm-val');
 
-        let autoBpm = true;
-        let loops = { audioA: false, audioB: false, audioC: false };
-
-        const scareBtn = document.getElementById('scare-btn');
-        const autoBpmBtn = document.getElementById('auto-bpm-btn');
-        const bpmSlider = document.getElementById('bpm-slider');
-        const bpmVal = document.getElementById('bpm-val');
-
-        scareBtn.addEventListener('click', () => {
-            update(ref(db, 'ecg'), { scare: true });
-            setTimeout(() => { update(ref(db, 'ecg'), { scare: false }); }, 1500);
-        });
-
-        autoBpmBtn.addEventListener('click', () => {
-            autoBpm = !autoBpm;
-            autoBpmBtn.textContent = `自動心拍調整: ${autoBpm ? 'ON' : 'OFF'}`;
-            autoBpmBtn.classList.toggle('active', autoBpm);
-            bpmSlider.disabled = autoBpm;
-            update(ref(db, 'ecg'), { auto: autoBpm });
-        });
-
-        bpmSlider.addEventListener('input', (e) => {
-            const val = parseInt(e.target.value);
-            bpmVal.textContent = val;
-            update(ref(db, 'ecg'), { bpm: val });
-        });
-
-        function sendAudioTrigger(id) {
-            update(ref(db, `audio/${id}`), { trigger: Date.now() });
-        }
-
-        function sendAudioLoop(id) {
-            loops[id] = !loops[id];
-            const suffix = id.replace('audio', '');
-            const btn = document.getElementById(`loop${suffix}-btn`);
-            const intervalInput = document.getElementById(`interval${suffix}`);
-            
-            btn.textContent = `周期再生: ${loops[id] ? 'ON' : 'OFF'}`;
-            btn.classList.toggle('active', loops[id]);
-
-            update(ref(db, `audio/${id}`), {
-                loop: loops[id],
-                interval: parseInt(intervalInput.value) || 5
+            // お化け出現ボタン
+            scareBtn.addEventListener('click', () => {
+                update(ref(db, 'ecg'), { scare: true });
+                setTimeout(() => { update(ref(db, 'ecg'), { scare: false }); }, 1500);
             });
+
+            // 自動・手動切り替え
+            autoBpmBtn.addEventListener('click', () => {
+                autoBpm = !autoBpm;
+                autoBpmBtn.textContent = `自動心拍調整: ${autoBpm ? 'ON' : 'OFF'}`;
+                autoBpmBtn.classList.toggle('active', autoBpm);
+                bpmSlider.disabled = autoBpm;
+                update(ref(db, 'ecg'), { auto: autoBpm });
+            });
+
+            // スライダー変更
+            bpmSlider.addEventListener('input', (e) => {
+                const val = parseInt(e.target.value);
+                bpmVal.textContent = val;
+                update(ref(db, 'ecg'), { bpm: val });
+            });
+
+            // 音響遠隔トリガー
+            function sendAudioTrigger(id) {
+                update(ref(db, `audio/${id}`), { trigger: Date.now() });
+            }
+
+            function sendAudioLoop(id) {
+                loops[id] = !loops[id];
+                const suffix = id.replace('audio', '');
+                const btn = document.getElementById(`loop${suffix}-btn`);
+                const intervalInput = document.getElementById(`interval${suffix}`);
+                
+                btn.textContent = `周期再生: ${loops[id] ? 'ON' : 'OFF'}`;
+                btn.classList.toggle('active', loops[id]);
+
+                update(ref(db, `audio/${id}`), {
+                    loop: loops[id],
+                    interval: parseInt(intervalInput.value) || 5
+                });
+            }
+
+            document.getElementById('triggerA-btn').addEventListener('click', () => sendAudioTrigger('audioA'));
+            document.getElementById('triggerB-btn').addEventListener('click', () => sendAudioTrigger('audioB'));
+            document.getElementById('triggerC-btn').addEventListener('click', () => sendAudioTrigger('audioC'));
+
+            document.getElementById('loopA-btn').addEventListener('click', () => sendAudioLoop('audioA'));
+            document.getElementById('loopB-btn').addEventListener('click', () => sendAudioLoop('audioB'));
+            document.getElementById('loopC-btn').addEventListener('click', () => sendAudioLoop('audioC'));
         }
-
-        document.getElementById('triggerA-btn').addEventListener('click', () => sendAudioTrigger('audioA'));
-        document.getElementById('triggerB-btn').addEventListener('click', () => sendAudioTrigger('audioB'));
-        document.getElementById('triggerC-btn').addEventListener('click', () => sendAudioTrigger('audioC'));
-
-        document.getElementById('loopA-btn').addEventListener('click', () => sendAudioLoop('audioA'));
-        document.getElementById('loopB-btn').addEventListener('click', () => sendAudioLoop('audioB'));
-        document.getElementById('loopC-btn').addEventListener('click', () => sendAudioLoop('audioC'));
     </script>
 </body>
 </html>
