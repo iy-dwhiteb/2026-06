@@ -3,100 +3,146 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>iPad 音響ターミナル</title>
+    <title>iPad 2-4 - 音響再生システム</title>
     <style>
-        body { background: #000; color: #333; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: sans-serif; }
-        #start-btn { background: #222; color: #888; border: 2px solid #333; padding: 20px 40px; font-size: 18px; border-radius: 8px; cursor: pointer; }
-        #start-btn.ready { background: #052c05; color: #00ff00; border-color: #00ff00; }
-        #status { position: absolute; bottom: 20px; font-size: 12px; color: #444; }
+        body { font-family: sans-serif; background: #111; color: #fff; text-align: center; padding: 40px 20px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        
+        /* スタート・ロック解除ボタン */
+        #start-btn { 
+            background: #222; color: #ff4d4d; border: 2px solid #ff4d4d; 
+            padding: 30px 60px; font-size: 24px; font-weight: bold; 
+            border-radius: 10px; cursor: pointer; margin: 40px 0;
+            width: 100%; box-shadow: 0 0 15px rgba(255, 77, 77, 0.2);
+        }
+        #start-btn.active { color: #00cc66; border-color: #00cc66; background: #052c05; box-shadow: 0 0 15px rgba(0, 204, 102, 0.2); }
+        
+        .status-box { background: #222; padding: 20px; border-radius: 8px; margin-top: 30px; border: 1px solid #333; }
+        .status { font-size: 20px; font-weight: bold; color: #00cc66; margin-top: 10px; }
+        .id-badge { background: #444; padding: 5px 15px; border-radius: 20px; font-size: 16px; display: inline-block; margin-bottom: 10px; }
     </style>
 </head>
 <body>
+    <div class="container">
+        <h1>🔊 遠隔音響 再生端末</h1>
+        
+        <button id="start-btn">タップしてシステム開始<br>(音響解放)</button>
 
-    <button id="start-btn">タップしてシステム開始 (音響解放)</button>
-    <div id="status">未接続</div>
+        <div class="status-box">
+            <div id="id-display" class="id-badge">端末ID: 未設定</div>
+            <div id="status-text" class="status" style="color: #ff4d4d;">接続準備中...</div>
+        </div>
+    </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-        import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+        import { getDatabase, ref, onValue, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-        // ⚠️ 共通の固定設定だけ書いておく
-const baseConfig = {
-    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-    databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_PROJECT_ID.appspot.com",
-    messagingSenderId: "YOUR_SENDER_ID",
-    appId: "YOUR_APP_ID"
-};
-
-// 画面を開いたときに、パスワードのようにAPIキーを要求する
-const userApiKey = prompt("FirebaseのAPIキーを入力してください:");
-
-if (!userApiKey) {
-    alert("APIキーが入力されなかったため、通信機能は動きません。");
-}
-
-// 入力されたキーと合体させる
-const firebaseConfig = {
-    apiKey: userApiKey,
-    ...baseConfig
-};
-
-// あとは通常通り初期化
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
-
-        // URLから自分のID（audioA, audioB, audioC）を取得する
+        // URLパラメータから key（APIキー）と id（audioA などの端末名）を両方取得
         const urlParams = new URLSearchParams(window.location.search);
-        const myId = urlParams.get('id') || 'audioA';
-        document.getElementById('status').textContent = `端末ID: ${myId} - 待機中`;
+        const dynamicApiKey = urlParams.get('key');
+        const audioId = urlParams.get('id'); // 'audioA', 'audioB', 'audioC' など
 
-        // オーディオファイルの準備（htmlファイルと同じフォルダに置いてください）
-        // IDごとに再生するファイル名を自動で切り替えます
-        const audio = new Audio(`${myId}.mp3`); 
+        if (!dynamicApiKey || !audioId) {
+            alert("エラー: URLに「?key=APIキー&id=audioA」のようなパラメータが必要です！");
+        }
 
-        let lastTrigger = 0;
-        let loopIntervalId = null;
+        // 画面に現在の割り当て端末IDを表示
+        document.getElementById('id-display').textContent = `端末ID: ${audioId}`;
+
+        // ⚠️ APIキー以外（一般公開してよい情報）を記述します
+        const firebaseConfig = {
+            apiKey: dynamicApiKey,
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+            databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT_ID.appspot.com",
+            messagingSenderId: "YOUR_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        // 各端末ごとの再生用音源ファイル（リポジトリ直下に配置してください）
+        // 例: audioA = locker.mp3, audioB = phone.mp3, audioC = footstep.mp3 など環境に合わせて変更OK
+        const audioMap = {
+            'audioA': new Audio('audioA.mp3'),
+            'audioB': new Audio('audioB.mp3'),
+            'audioC': new Audio('audioC.mp3')
+        };
+
+        const myAudio = audioMap[audioId];
         let isReady = false;
+        let loopTimer = null;
 
-        // iOSの音制限を解除するタップイベント
+        if (myAudio) {
+            myAudio.volume = 1.0;
+        } else {
+            alert("エラー: 認識できない端末IDです。audioA, audioB, audioC のいずれかを指定してください。");
+        }
+
+        // iPadの音声ロック解除処理
         const startBtn = document.getElementById('start-btn');
         startBtn.addEventListener('click', () => {
-            audio.play().then(() => {
-                audio.pause(); // 一瞬流してすぐ止めることでロック解除
-                audio.currentTime = 0;
+            if (!myAudio) return;
+            
+            myAudio.play().then(() => {
+                myAudio.pause();
+                myAudio.currentTime = 0;
                 isReady = true;
-                startBtn.textContent = "システム稼働中... (画面はこのまま)";
-                startBtn.classList.add('ready');
-            }).catch(e => alert("オーディオの起動に失敗しました。"));
+                
+                startBtn.textContent = "● システム稼働中 (音響解放済み)";
+                startBtn.classList.add('active');
+                document.getElementById('status-text').textContent = "マスターからの命令を待機中...";
+                document.getElementById('status-text').style.color = "#00cc66";
+            }).catch(e => {
+                alert("音源ファイルのロードに失敗しました。ファイル名が正しいか確認してください。");
+            });
         });
 
-        // Firebaseの命令を監視
-        onValue(ref(db, `audio/${myId}`), (snapshot) => {
-            const data = snapshot.val();
-            if (!data || !isReady) return;
-
-            // 1. 一発再生トリガーの検知（タイムスタンプが変わったら再生）
-            if (data.trigger && data.trigger !== lastTrigger) {
-                lastTrigger = data.trigger;
-                playSound();
-            }
-
-            // 2. 周期（ループ）再生のコントロール
-            clearInterval(loopIntervalId);
-            if (data.loop && data.interval) {
-                loopIntervalId = setInterval(() => {
-                    playSound();
-                }, data.interval * 1000);
-            }
-        });
-
+        // 単発再生用の関数
         function playSound() {
-            if (!isReady) return;
-            audio.currentTime = 0; // 最初から再生
-            audio.play().catch(e => console.log("再生ブロック:", e));
+            if (!isReady || !myAudio) return;
+            myAudio.currentTime = 0;
+            myAudio.play().catch(e => console.log("再生エラー:", e));
         }
+
+        // 周期（ループ）再生のタイマーを管理する関数
+        function manageLoop(isLoop, intervalSeconds) {
+            // 動いているタイマーがあれば一旦クリア
+            if (loopTimer) {
+                clearInterval(loopTimer);
+                loopTimer = null;
+            }
+
+            // ループONならタイマーをセット
+            if (isLoop && intervalSeconds > 0) {
+                loopTimer = setInterval(() => {
+                    playSound();
+                }, intervalSeconds * 1000);
+            }
+        }
+
+        // Firebaseのこの端末専用のデータノード（例: audio/audioA）を監視
+        let lastTrigger = 0;
+        onValue(ref(db, `audio/${audioId}`), (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                // 1. 一発再生のトリガーチェック (タイムスタンプが更新されたら再生)
+                if (data.trigger && data.trigger !== lastTrigger) {
+                    if (lastTrigger !== 0) { // 起動直後の誤爆防止
+                        playSound();
+                    }
+                    lastTrigger = data.trigger;
+                }
+
+                // 2. 周期再生のチェック
+                const isLoop = data.loop ?? false;
+                const interval = data.interval || 5;
+                manageLoop(isLoop, interval);
+            }
+        });
     </script>
 </body>
 </html>
