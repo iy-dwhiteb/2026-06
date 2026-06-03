@@ -3,16 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>iPad 2-4 - 音響再生システム（同期修正版）</title>
+    <title>音響システム（自動受信版）</title>
     <style>
         body { font-family: sans-serif; background: #111; color: #fff; text-align: center; padding: 40px 20px; }
         .container { max-width: 600px; margin: 0 auto; }
-        #start-btn { 
-            background: #222; color: #ff4d4d; border: 2px solid #ff4d4d; 
-            padding: 30px 60px; font-size: 24px; font-weight: bold; 
-            border-radius: 10px; cursor: pointer; margin: 40px 0;
-            width: 100%; box-shadow: 0 0 15px rgba(255, 77, 77, 0.2);
-        }
+        #start-btn { background: #222; color: #ff4d4d; border: 2px solid #ff4d4d; padding: 30px 60px; font-size: 24px; font-weight: bold; border-radius: 10px; cursor: pointer; margin: 40px 0; width: 100%; box-shadow: 0 0 15px rgba(255, 77, 77, 0.2); }
         #start-btn.active { color: #00cc66; border-color: #00cc66; background: #052c05; box-shadow: 0 0 15px rgba(0, 204, 102, 0.2); }
         .status-box { background: #222; padding: 20px; border-radius: 8px; margin-top: 30px; border: 1px solid #333; }
         .status { font-size: 20px; font-weight: bold; color: #00cc66; margin-top: 10px; }
@@ -22,9 +17,7 @@
 <body>
     <div class="container">
         <h1>🔊 遠隔音響 再生端末</h1>
-        
         <button id="start-btn">タップしてシステム開始<br>(音響解放)</button>
-
         <div class="status-box">
             <div id="id-display" class="id-badge">端末ID: 未設定</div>
             <div id="status-text" class="status" style="color: #ff4d4d;">接続準備中...</div>
@@ -33,98 +26,51 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-        import { getDatabase, ref, onValue, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+        import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
         const urlParams = new URLSearchParams(window.location.search);
-        const dynamicApiKey = urlParams.get('key');
+        const cfg = urlParams.get('cfg');
         const audioId = urlParams.get('id');
 
-        if (!dynamicApiKey || !audioId) {
-            document.getElementById('status-text').textContent = "❌ URL設定エラー";
-            alert("エラー: URLに「?key=APIキー&id=audioA」の指定が必要です！");
+        if (!cfg || !audioId) {
+            alert("エラー: マスター機から生成された正しいURLでアクセスしてください。");
         } else {
             document.getElementById('id-display').textContent = `端末ID: ${audioId}`;
-            
-            const firebaseConfig = {
-                apiKey: dynamicApiKey,
-                authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-                databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
-                projectId: "YOUR_PROJECT_ID",
-                storageBucket: "YOUR_PROJECT_ID.appspot.com",
-                messagingSenderId: "YOUR_SENDER_ID",
-                appId: "YOUR_APP_ID"
-            };
-
+            const firebaseConfig = JSON.parse(decodeURIComponent(atob(cfg)));
             const app = initializeApp(firebaseConfig);
             const db = getDatabase(app);
-
-            // 音響システムのメイン処理
-            startAudioSystem(db, audioId);
+            startAudio(db, audioId);
         }
 
-        function startAudioSystem(db, audioId) {
-            const audioMap = {
-                'audioA': new Audio('audioA.mp3'),
-                'audioB': new Audio('audioB.mp3'),
-                'audioC': new Audio('audioC.mp3')
-            };
+        function startAudio(db, audioId) {
+            const audioMap = { 'audioA': new Audio('audioA.mp3'), 'audioB': new Audio('audioB.mp3'), 'audioC': new Audio('audioC.mp3') };
+            const myAudio = audioMap[audioId]; let isReady = false; let loopTimer = null;
 
-            const myAudio = audioMap[audioId];
-            let isReady = false;
-            let loopTimer = null;
-
-            if (myAudio) {
-                myAudio.volume = 1.0;
-            } else {
-                alert("エラー: audioA, audioB, audioC のいずれかを指定してください。");
-                return;
-            }
+            if (myAudio) { myAudio.volume = 1.0; } else { alert("不正な端末ID"); return; }
 
             const startBtn = document.getElementById('start-btn');
             startBtn.addEventListener('click', () => {
                 myAudio.play().then(() => {
-                    myAudio.pause();
-                    myAudio.currentTime = 0;
-                    isReady = true;
-                    
-                    startBtn.textContent = "● システム稼働中 (音響解放済み)";
-                    startBtn.classList.add('active');
-                    document.getElementById('status-text').textContent = "マスターからの命令を待機中...";
-                    document.getElementById('status-text').style.color = "#00cc66";
-                }).catch(e => {
-                    alert("音源の解放に失敗しました。ファイルがサーバーにあるか確認してください。");
-                });
+                    myAudio.pause(); myAudio.currentTime = 0; isReady = true;
+                    startBtn.textContent = "● システム稼働中 (音響解放済み)"; startBtn.classList.add('active');
+                    document.getElementById('status-text').textContent = "命令待機中..."; document.getElementById('status-text').style.color = "#00cc66";
+                }).catch(() => { isReady = true; });
             });
 
-            function playSound() {
-                if (!isReady || !myAudio) return;
-                myAudio.currentTime = 0;
-                myAudio.play().catch(e => console.log("再生エラー:", e));
-            }
-
-            function manageLoop(isLoop, intervalSeconds) {
-                if (loopTimer) {
-                    clearInterval(loopTimer);
-                    loopTimer = null;
-                }
-                if (isLoop && intervalSeconds > 0) {
-                    loopTimer = setInterval(() => { playSound(); }, intervalSeconds * 1000);
-                }
-            }
+            function playSound() { if (isReady && myAudio) { myAudio.currentTime = 0; myAudio.play().catch(e => console.log(e)); } }
 
             let lastTrigger = 0;
             onValue(ref(db, `audio/${audioId}`), (snapshot) => {
                 const data = snapshot.val();
                 if (data) {
                     if (data.trigger && data.trigger !== lastTrigger) {
-                        if (lastTrigger !== 0) {
-                            playSound();
-                        }
+                        if (lastTrigger !== 0) playSound();
                         lastTrigger = data.trigger;
                     }
-                    const isLoop = data.loop ?? false;
-                    const interval = data.interval || 5;
-                    manageLoop(isLoop, interval);
+                    if (loopTimer) clearInterval(loopTimer);
+                    if (data.loop && data.interval > 0) {
+                        loopTimer = setInterval(() => { playSound(); }, data.interval * 1000);
+                    }
                 }
             });
         }
