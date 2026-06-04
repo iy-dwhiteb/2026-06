@@ -40,8 +40,7 @@
         function startEcg(db) {
             let currentBpm = 70; let isAuto = true; let isScare = false; let isReady = false;
             const bpmAudio = new Audio('sindenzu.MP3');
-            const scareAudio = new Audio('scare_sound.mp3'); scareAudio.volume = 1.5;
-            const scareAudio = new Audio('scare_sound.mp3'); scareAudio.volume = 1.0;
+            const scareAudio = new Audio('scare_sound.m4a'); scareAudio.volume = 1.0;
 
             document.getElementById('start-btn').addEventListener('click', () => {
                 document.getElementById('start-overlay').style.display = 'none';
